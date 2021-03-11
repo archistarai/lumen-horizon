@@ -18,20 +18,21 @@ class DashboardStatsController extends Controller
     public function index()
     {
         return [
+            'failedJobs' => app(JobRepository::class)->countRecentlyFailed(),
             'jobsPerMinute' => app(MetricsRepository::class)->jobsProcessedPerMinute(),
+            'pausedMasters' => $this->totalPausedMasters(),
+            'periods' => [
+                'failedJobs' => config('horizon.trim.recent_failed', config('horizon.trim.failed')),
+                'recentJobs' => config('horizon.trim.recent'),
+            ],
             'processes' => $this->totalProcessCount(),
             'queueWithMaxRuntime' => app(MetricsRepository::class)->queueWithMaximumRuntime(),
             'queueWithMaxThroughput' => app(MetricsRepository::class)->queueWithMaximumThroughput(),
-            'failedJobs' => app(JobRepository::class)->countRecentlyFailed(),
             'recentJobs' => app(JobRepository::class)->countRecent(),
             'pendingJobs' => app(JobRepository::class)->countPending(),
             'completedJobs' => app(JobRepository::class)->countCompleted(),
             'status' => $this->currentStatus(),
             'wait' => collect(app(WaitTimeCalculator::class)->calculate())->take(1),
-            'periods' => [
-                'failedJobs' => config('horizon.trim.recent_failed', config('horizon.trim.failed')),
-                'recentJobs' => config('horizon.trim.recent'),
-            ],
         ];
     }
 
@@ -60,8 +61,24 @@ class DashboardStatsController extends Controller
             return 'inactive';
         }
 
-        return collect($masters)->contains(function ($master) {
+        return collect($masters)->every(function ($master) {
             return $master->status === 'paused';
         }) ? 'paused' : 'running';
+    }
+
+    /**
+     * Get the number of master supervisors that are currently paused.
+     *
+     * @return int
+     */
+    protected function totalPausedMasters()
+    {
+        if (! $masters = app(MasterSupervisorRepository::class)->all()) {
+            return 0;
+        }
+
+        return collect($masters)->filter(function ($master) {
+            return $master->status === 'paused';
+        })->count();
     }
 }
